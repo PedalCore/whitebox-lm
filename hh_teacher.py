@@ -47,11 +47,14 @@ def init_state(B):
     return [V, am / (am + bm), ah / (ah + bh), an / (an + bn)]
 
 
-def simulate(I_of_t, B):
-    """I_of_t: (B, N_internal) current. Returns recorded V (B, N/10)."""
+def simulate(I_of_t, B, full=False):
+    """I_of_t: (B, N_internal) current. Returns recorded V (B, N/10);
+    with full=True returns (V, m, h, n) recordings."""
     V, m, h, n = init_state(B)
     N = I_of_t.shape[1]
     rec = np.empty((B, N // REC_EVERY), np.float32)
+    if full:
+        recg = np.empty((3, B, N // REC_EVERY), np.float32)
     for t in range(N):
         am, bm, ah, bh, an, bn = rates(V)
         # exponential Euler on gates
@@ -66,7 +69,11 @@ def simulate(I_of_t, B):
         V += DT * (I_of_t[:, t] - ina - ik - il) / C
         if t % REC_EVERY == REC_EVERY - 1:
             rec[:, t // REC_EVERY] = V
-    return rec
+            if full:
+                recg[0, :, t // REC_EVERY] = m
+                recg[1, :, t // REC_EVERY] = h
+                recg[2, :, t // REC_EVERY] = n
+    return (rec, recg) if full else rec
 
 
 def make_drive(B, N, rng):
@@ -127,10 +134,11 @@ def main():
     splits = {}
     for name, B in (('train', 256), ('val', 32), ('test', 32)):
         I = make_drive(B, N, rng)
-        V = simulate(I, B)
+        V, G = simulate(I, B, full=True)
         Irec = I[:, REC_EVERY - 1::REC_EVERY].astype(np.float32)
         splits[name + '_I'] = Irec
         splits[name + '_V'] = V
+        splits[name + '_G'] = G          # (3,B,T): m, h, n
         ns = np.mean([len(spikes_from_v(V[b])) for b in range(B)])
         print(f'{name}: {B} seqs, mean {ns:.1f} spikes/s', flush=True)
     amps, rate = fi_curve()
@@ -141,9 +149,9 @@ def main():
           f'(type II expects discontinuous ~50)', flush=True)
     print(f'anodal-break rebound spikes after release: {len(reb)} '
           f'at {np.round(reb, 1)} ms', flush=True)
-    np.savez_compressed(OUT / 'hh_data.npz', fi_amps=amps,
+    np.savez_compressed(OUT / 'hh_data_full.npz', fi_amps=amps,
                         fi_rate=rate, rebound_v=vreb, **splits)
-    print('wrote', OUT / 'hh_data.npz', flush=True)
+    print('wrote', OUT / 'hh_data_full.npz', flush=True)
 
 
 if __name__ == '__main__':
