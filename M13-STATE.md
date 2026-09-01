@@ -125,3 +125,29 @@ crossing detector as the teacher), spike-region weight 10x,
    operating point; test edge-of-chaos vs off-critical composition
    with our stability metrics (M10-style fixed dynamics + trained
    readouts is exactly their regime).
+
+## Run 2 (2026-09-01): GATE FAILED AGAIN — optimization variance
+## dominates; declaring recipe v3 (teacher forcing)
+
+v2 results: k=1 RMSE 25.7/F1 0.00, k=2 25.4/0.00, k=4 23.2/0.00
+(WORSE than its own v1 run, 0.51 — same recipe, different seed
+behavior), k=8 17.7/0.67. Still no constant-drive firing, no
+rebound. Diagnosis: free-run regression onto sharp rare events —
+mistimed spikes cost double (miss + false alarm), so the optimizer
+suppresses spiking; run-to-run variance confirms a hard loss
+landscape, not a capacity limit.
+
+Recipe v3 (declared before running): autoregressive observable
+feedback with scheduled sampling — input becomes [I_t, v_{t-1}],
+where v_{t-1} is the TEACHER's voltage with probability 1-eps and
+the model's own (detached) prediction otherwise; eps ramps 0 -> 1
+over the first 60% of epochs; evaluation is ALWAYS full free-run
+from rest. This is standard teacher forcing from the dynamical-
+system-reconstruction literature, and the same fix (scheduled
+sampling) that repaired M10-P calibration.
+
+HONEST STATE ACCOUNTING: the fed-back voltage is itself a state
+variable. Surrogate total state = k + 1. The ladder therefore
+sweeps k in {1,2,3,4,8} (total 2,3,4,5,9), and P1 is restated:
+saturation at TOTAL state 4, i.e. k=3. All other predictions
+carry over with k read as total-state minus one.
