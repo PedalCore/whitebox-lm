@@ -79,3 +79,22 @@ Honesty notes: rung-1 saturation at k=4 validates the method, not
 the hypothesis that richer units help on tasks (that is R5). A
 GRU's gates give it timescale flexibility a plain RNN lacks; the
 ladder measures state COUNT, with cell class held fixed.
+
+## Run 1 (2026-09-01): GATE FAILED — recipe, not dimension, was measured
+
+Instrument gate (implicit until now, explicit from here on): the
+ladder is only interpretable if the LARGEST k fits the teacher well
+(target: spike F1 > 0.9, RMSE < 5 mV). Run 1, 12 epochs, linear
+readout, pure weighted-MSE: k=1 RMSE 17.9/F1 0.00, k=2 18.8/0.00,
+k=4 15.0/0.51, k=8 20.2/0.23. Non-monotone in k, no surrogate
+fires on constant drive (all f-I RMSE = 53 Hz = the never-spikes
+score), zero rebounds. MSE alone prefers blurred spikes; the
+optimizer, not the state count, is binding. No prediction can be
+scored from this run.
+
+Recipe v2 (declared before running): memoryless MLP readouts
+(k->32->1; adds no state, ladder still measures k), auxiliary
+spike head trained with BCE on +-0.3 ms spike indicators
+(training aid; PRIMARY F1 still scored by the same 0 mV voltage-
+crossing detector as the teacher), spike-region weight 10x,
+30 epochs, cosine lr 3e-3 -> 3e-4.
