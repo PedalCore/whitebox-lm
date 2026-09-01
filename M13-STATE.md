@@ -151,3 +151,26 @@ variable. Surrogate total state = k + 1. The ladder therefore
 sweeps k in {1,2,3,4,8} (total 2,3,4,5,9), and P1 is restated:
 saturation at TOTAL state 4, i.e. k=3. All other predictions
 carry over with k read as total-state minus one.
+
+## R2 declared in detail (2026-09-01, before running; v3 still going)
+
+v3 interim: k=1,2,3 all F1 0.00 free-run (the eps -> 1 anneal
+collapses every arm to silence so far). Whatever k=8 does, R2 runs
+next: classical hand-designed units fitted to the SAME train
+sequences by CMA-ES (loss = (1 - F1_2ms) + 0.05 * subthreshold
+RMSE; 16 fitting seqs, 4 restarts), scored on the same test set +
+signatures. Arms: LIF (1 state + reset), Izhikevich (2), AdEx (2).
+Spikes for classical arms are their explicit reset events (their
+mechanism, honestly theirs); voltage RMSE via affine map, reported
+but secondary.
+
+R2 predictions:
+R2a. Fitted Izhikevich-2 beats every learned arm's current F1 by a
+     wide margin — the bottleneck in runs 1-3 is TRAINABILITY of
+     spiking dynamics under gradient descent, not state count.
+R2b. LIF shows zero rebound spikes STRUCTURALLY (passive leak
+     cannot overshoot on release); at least one of the 2-state
+     arms recovers the anodal-break rebound.
+R2c. No classical arm matches HH's type II f-I discontinuity as
+     well as its overall F1 (Izhikevich fitted for timing tends
+     type I unless parameters land in the resonator regime).
