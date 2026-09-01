@@ -1,16 +1,19 @@
 """M13 rung 1 — learned k-state surrogates of the HH teacher.
 
-k-state GRU cell, k in {1,2,4,8}; memoryless MLP readouts for
-voltage and an auxiliary spike head (training aid — primary F1 is
-still scored by 0 mV voltage crossings, same detector as the
-teacher). TBPTT over 1000-step (100 ms) chunks. Weighted voltage
-MSE (10x on V > -20 mV) + 0.5*BCE on +-0.3 ms spike indicators.
-Reports voltage RMSE, spike-timing F1 (+-2 ms), and the two OOD
-signatures (f-I curve error, anodal-break rebound) per k.
-Instrument gate: interpret the ladder only if the largest k fits
-well (F1 > 0.9, RMSE < 5 mV).
+Recipe v3. k-state GRU cell, k in {1,2,3,4,8}, plus autoregressive
+observable feedback (input = [I_t, v_{t-1}]) with scheduled
+sampling: teacher voltage early, own detached prediction late (eps
+ramps 0 -> 1 over the first 60% of epochs); evaluation is ALWAYS
+full free-run from rest. HONEST STATE ACCOUNTING: fed-back voltage
+is a state variable — total state = k + 1, so saturation at HH's
+true dimension 4 predicts a knee at k=3. Memoryless MLP readouts
+for voltage and an auxiliary spike head (training aid — primary F1
+scored by 0 mV voltage crossings, same detector as the teacher).
+Weighted voltage MSE (10x on V > -20 mV) + 0.5*BCE on +-0.3 ms
+spike indicators. Instrument gate: interpret the ladder only if
+the largest k fits well (F1 > 0.9, RMSE < 5 mV).
 
-python3 -m whitebox.hh_surrogate [--ks 1,2,4,8] [--epochs 30]
+python3 -m whitebox.hh_surrogate [--ks 1,2,3,4,8] [--epochs 20]
 """
 
 import argparse
@@ -38,24 +41,42 @@ class Surrogate(nn.Module):
 
     def __init__(self, k):
         super().__init__()
-        self.cell = nn.GRUCell(1, k)
+        self.cell = nn.GRUCell(2, k)   # [current, v_feedback]
         self.out = nn.Sequential(nn.Linear(k, 32), nn.Tanh(),
                                  nn.Linear(32, 1))
         self.spk = nn.Sequential(nn.Linear(k, 32), nn.Tanh(),
                                  nn.Linear(32, 1))
         self.k = k
 
-    def forward(self, i_seq, h=None):
-        """i_seq (B,T) normalized current -> (v, spike_logit, h)."""
+    def forward(self, i_seq, v_teach=None, eps=1.0, h=None,
+                v_prev=None):
+        """i_seq (B,T) normalized current. Autoregressive observable
+        feedback: input_t = [I_t, v_{t-1}], where v_{t-1} is the
+        teacher's voltage w.p. 1-eps, else the model's own detached
+        prediction. eps=1 (or v_teach=None) = full free-run.
+        Returns (v, spike_logit, h, last_v)."""
         B, T = i_seq.shape
         if h is None:
             h = i_seq.new_zeros(B, self.k)
-        hs = []
+        if v_prev is None:
+            v_prev = i_seq.new_zeros(B, 1)          # rest = 0 norm
+        hs, vs = [], []
         for t in range(T):
-            h = self.cell(i_seq[:, t:t + 1], h)
+            if v_teach is not None and eps < 1.0:
+                use_own = (torch.rand(B, 1, device=i_seq.device)
+                           < eps).float()
+                prev_t = (v_teach[:, t - 1:t] if t > 0 else v_prev)
+                v_fb = use_own * v_prev + (1 - use_own) * prev_t
+            else:
+                v_fb = v_prev
+            h = self.cell(
+                torch.cat([i_seq[:, t:t + 1], v_fb], 1), h)
+            v_prev = self.out(h).detach()
             hs.append(h)
+            vs.append(v_prev)
         H = torch.stack(hs, 1)
-        return self.out(H).squeeze(-1), self.spk(H).squeeze(-1), h
+        return (self.out(H).squeeze(-1), self.spk(H).squeeze(-1),
+                h, vs[-1])
 
 
 def run_full(model, I_mv, dev, bs=32):
@@ -66,7 +87,7 @@ def run_full(model, I_mv, dev, bs=32):
         for b0 in range(0, len(I_mv), bs):
             x = torch.tensor(I_mv[b0:b0 + bs] / IS,
                              dtype=torch.float32, device=dev)
-            v, _, _ = model(x)
+            v, _, _, _ = model(x)
             outs.append(v.cpu().numpy() * VS - VOFF)
     return np.concatenate(outs, 0)
 
@@ -125,17 +146,21 @@ def train_one(k, d, dev, epochs, seed=0, use_wandb=False):
     nprm = sum(p.numel() for p in model.parameters())
     B, T = Itr.shape
     for ep in range(epochs):
+        eps = min(1.0, ep / max(1, int(0.6 * epochs)))
         perm = torch.randperm(B)
         tot = cnt = 0.0
         for b0 in range(0, B, 32):
             idx = perm[b0:b0 + 32]
-            h = None
+            h = vlast = None
             for c0 in range(0, T, CHUNK):
                 x = Itr[idx, c0:c0 + CHUNK].to(dev)
                 y = Vtr[idx, c0:c0 + CHUNK].to(dev)
                 w = W[idx, c0:c0 + CHUNK].to(dev)
                 sy = S[idx, c0:c0 + CHUNK].to(dev)
-                v, sl, h = model(x, None if h is None else h.detach())
+                v, sl, h, vlast = model(
+                    x, v_teach=y, eps=eps,
+                    h=None if h is None else h.detach(),
+                    v_prev=vlast)
                 loss = ((v - y) ** 2 * w).mean() + 0.5 * bce(sl, sy)
                 opt.zero_grad()
                 loss.backward()
@@ -146,8 +171,9 @@ def train_one(k, d, dev, epochs, seed=0, use_wandb=False):
         va = run_full(model, d['val_I'], dev)
         rmse = float(np.sqrt(np.mean((va - d['val_V']) ** 2)))
         vf1 = spike_f1(d['val_V'], va)
-        print(f'k={k} ep{ep + 1}: train {tot / cnt:.5f} '
-              f'val-RMSE {rmse:.2f} mV F1 {vf1:.2f}', flush=True)
+        print(f'k={k} ep{ep + 1} eps={eps:.2f}: train '
+              f'{tot / cnt:.5f} val-RMSE {rmse:.2f} mV '
+              f'F1 {vf1:.2f}', flush=True)
         if use_wandb:
             import wandb
             wandb.log({f'k{k}/train_loss': tot / cnt,
@@ -167,15 +193,15 @@ def train_one(k, d, dev, epochs, seed=0, use_wandb=False):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--ks', default='1,2,4,8')
-    ap.add_argument('--epochs', type=int, default=30)
+    ap.add_argument('--ks', default='1,2,3,4,8')
+    ap.add_argument('--epochs', type=int, default=20)
     args = ap.parse_args()
     dev = ('mps' if torch.backends.mps.is_available() else 'cpu')
     d = dict(np.load(OUT / 'hh_data.npz'))
     use_wandb = False
     try:
         import wandb
-        wandb.init(project='m13-state', name='rung1-ladder-v2',
+        wandb.init(project='m13-state', name='rung1-ladder-v3',
                    config=vars(args))
         use_wandb = True
     except Exception as e:
