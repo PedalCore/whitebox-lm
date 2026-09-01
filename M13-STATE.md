@@ -98,3 +98,30 @@ spike head trained with BCE on +-0.3 ms spike indicators
 (training aid; PRIMARY F1 still scored by the same 0 mV voltage-
 crossing detector as the teacher), spike-region weight 10x,
 30 epochs, cosine lr 3e-3 -> 3e-4.
+
+## Related work (added 2026-09-01, user-supplied)
+
+1. Wan, Karniadakis & Stinis, "From LIF to QIF: toward
+   differentiable spiking neurons for scientific ML" (npj AI,
+   2026; s44387-026-00121-2). QIF's quadratic subthreshold keeps
+   spiking smooth enough for backprop — the mirror image of M12's
+   HEU non-differentiability blocker. Hook -> R2/R5: add QIF as a
+   1-state arm; it varies NONLINEARITY at fixed k, orthogonal to
+   our k-ladder (GRU fixed). Sharpens P2: QIF onset is type-I-like;
+   a 1-state unit of any nonlinearity should still fail HH's
+   type II onset and rebound (both need a second, resonant state).
+2. Tandale & Stoffel, "Meta-learning hybrid spiking networks as
+   physics-based nonlinear solvers" (npj Unconventional Computing,
+   2026; s44335-025-00048-y). LIF-gated graded outputs (spike
+   mechanism as learned selectivity/regularization), Loihi-2
+   deployment. Precedent that spiking dynamics pay as parameter
+   efficiency in trained solvers; adjacent to our rwkv-spiking
+   line more than to rung 1.
+3. Freddi et al., "Mean-field criticality in spiking networks for
+   reservoir computing" (Sci Reports, 2025; s41598-025-18004-y).
+   Closed-form critical coupling <W>_crit for LIF reservoirs —
+   principled fixed-physics initialization, no tuning. Hook -> R4:
+   when composing many k-state units, their formula is a candidate
+   operating point; test edge-of-chaos vs off-critical composition
+   with our stability metrics (M10-style fixed dynamics + trained
+   readouts is exactly their regime).
