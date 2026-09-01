@@ -170,3 +170,28 @@ The full loop this collaboration was meant to test — blind
 replication, honest disagreement, author correction, same-day
 re-run, upgraded verdict, next experiment co-designed — closed in
 72 hours between two parties who have never met.
+
+
+## THREADS CLOSED (2026-09-01, later): both open items resolved
+## from the canonical repo
+
+(1) The 2.75x coupling ablation is a RATIO-BOUND ARTIFACT. His
+exp_05 reproduces verbatim here (0.019625/0.007142/0.000927 →
+21.18x/7.71x/2.75x). The coupled map (g·σ, g·(1−σ)) is surjective
+— only bounds differ between classes: coupled ratio caps at e^3≈20
+(his coupled fit pins θ_balance AT +3), his uncoupled allows e^6
+(his uncoupled optimum sits at ratio e^4.64≈103, outside coupled's
+reach). Falsification test with his own code, one change
+(θ_balance bounds ±3→±6): coupled loss 0.006441 at ratio 233 —
+BETTER than uncoupled. The 2.75x inverts; our matched-bounds 1.00x
+null was correct. What survives is the real law: single-state
+0.0064 vs two-voice 0.00093 — parameter search cannot substitute
+for state. (heu-replication/exp05_bounds_test.py, commit 0dfa2cf)
+
+(2) The ~0.08 gap floor DOES NOT EXIST in canonical code: his
+target function decays 0.309→0.014→0.0009→0.0001→0.0000 through
+the gap, matching our reconstruction. The paper figure was stale.
+Documentation gap flagged for HEUv2: the canonical unit carries two
+terms absent from A.10 (attack-gate self-feedback ×0.8; (1−v)
+attack saturation — hence envelopes peaking at exactly 1.0), so the
+target is not byte-reconstructible from the paper alone.
