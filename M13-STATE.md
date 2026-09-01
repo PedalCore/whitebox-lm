@@ -272,3 +272,53 @@ D. COMPUTATIONAL: downstream task performance per unit state
 The physical -> observable -> behavioral -> computational
 progression is the project's actual question; rung-1's "knee at
 k=4" was a special case and is retired as a headline claim.
+
+## Experiment A interim + wording correction (2026-09-02)
+
+Results so far (20 epochs, seed 0): k=8 F1 0.712 / V-RMSE 17.9 /
+f-I 44.7 (fires under constant drive); k=4 0.468 / 21.7 / 53.0
+(fires ONLY under fluctuating drive); k=3 0.000. Gate not passed.
+
+WORDING CORRECTED (per review): the k=8 sub-gate result is "not
+evidence for insufficient latent dimensionality or partial
+observability" — NOT "a training/dynamics-class problem, not
+capacity." With k=8 > 4 explicit teacher states and full
+supervision, the unresolved bottleneck is among: optimization,
+transition-class expressivity of the discrete GRU map,
+discretization, rollout stability, loss scaling. "Capacity" also
+includes the GRU transition's own expressive capacity.
+
+Confounds logged before 2/1 land: (a) k=8's F1 was 0.00 through
+ep9, then 0.60/0.67/0.70 — a late sudden transition, still
+climbing at ep20; the 8-vs-4 gap partly reads as "larger models
+cross the spiking transition earlier at fixed budget"; (b) single
+seed — earlier non-monotone runs mandate multi-seed replication
+before any capacity-law claim. What IS noteworthy: k=8 crossed a
+QUALITATIVE boundary k=4 has not (sustained constant-drive
+firing), suggesting extra state buys dynamical regime, not just
+voltage error. Restrained summary: a provisional state-dependent
+performance hierarchy under a fixed learned dynamics class —
+not a measurement of minimal realization.
+
+Normalization audit (per review): per-variable normalized stds
+V 0.171 / m 0.211 / h 0.140 / n 0.116 — no variable dominates the
+uniform state loss. Caveat stands: dynamical sensitivity is not
+uniform (I_Na ~ m^3 h), so state-loss fidelity does not imply
+dynamical fidelity.
+
+## Experiment A0 declared (before running): the diagnostic fork
+
+Above A in the ladder: NO latent, NO encoder/decoder, NO
+recurrence. Plain MLP transition F(V,m,h,n,I) -> next state
+(residual, 0.1 ms flow map), trained on all teacher transitions
+as iid pairs. Two evaluations, separated:
+1. teacher-forced ONE-STEP error — if not excellent, something
+   basic is wrong (scaling/optimizer/architecture/loss);
+2. AUTONOMOUS rollout from rest — recursive self-feeding.
+Fork: one-step bad -> function-approximation problem; one-step
+good + rollout bad -> stability/accumulated error; both good ->
+the GRU formulation was the problem and the ladder rebuilds on
+this transition class. Secondary mode: learn the analytic vector
+field (RHS at recorded states) and integrate with Euler substeps
+— separates vector-field learning from discretized transitions
+(the CfC/continuous-time question, testable cheaply).
