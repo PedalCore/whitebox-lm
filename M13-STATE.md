@@ -174,3 +174,46 @@ R2b. LIF shows zero rebound spikes STRUCTURALLY (passive leak
 R2c. No classical arm matches HH's type II f-I discontinuity as
      well as its overall F1 (Izhikevich fitted for timing tends
      type I unless parameters land in the resonator regime).
+
+## Round 1 synthesis (2026-09-02): three learned recipes, one
+## classical round — the honest scorecard
+
+v3 final: ALL arms (k=1,2,3,4,8; total state 2-9) F1 0.00 in
+free-run. Notably WORSE than v2 at k=8 (0.67 -> 0.00): detached
+scheduled sampling taught reliance on teacher feedback, then
+removed its quality with no gradient path to learn self-
+correction — the documented bias of detached scheduled sampling.
+
+R2 classical (CMA-ES, same data): LIF-1 F1 0.279 / f-I 107.5 /
+rebound 0; Izhikevich-2 0.335 / 44.7 / 0; AdEx-2 0.368 / 49.0 / 0.
+
+Prediction scoring:
+- P1-P4: UNSCOREABLE — the instrument gate (largest k at F1>0.9)
+  never passed in three recipes. The ladder has not yet measured
+  HH's dimension.
+- R2a: CONFIRMED with a caveat — every designed arm beats every
+  learned arm (0.28-0.37 vs 0.00), but the designed ceiling is
+  ~0.37, not mastery.
+- R2b: HALF-FAILED — LIF's zero rebound is structural as
+  predicted, but NEITHER 2-state arm recovered the rebound:
+  timing-optimal parameters sit in the fast-spiking regime, not
+  the resonator regime. Timing fit and signature fit are in
+  tension at 2 states.
+- R2c: CONFIRMED — no arm matches type II; Izhikevich's 44.7 is
+  the only f-I score better than never-firing (53).
+
+Two real findings survive the failed gate:
+1. TRAINABILITY, not capacity, binds the learned arms: 9 total
+   states + 3 recipes < 1 designed state + parameter search.
+2. STATE, not design, binds the classical arms: AdEx and
+   Izhikevich converge to fitting losses within 1e-4 of each
+   other — a 2-state class ceiling (~F1 0.35) for fluctuation-
+   driven HH timing, echoing the five-instances law from the
+   designed side.
+
+Recipe v4 (declared before running): return to the v2
+configuration (no feedback input — the only arm ever to fire in
+free-run), epochs 20 -> 60, ks {2,3,4,8}, seed 0, same gate.
+If v4 also fails the gate, rung 1 concludes as a negative result
+with the two findings above as its product, and R3+ proceed with
+designed/hybrid arms.
