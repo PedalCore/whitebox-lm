@@ -54,11 +54,11 @@ def hh_rhs(S, I):
 
 
 class F(nn.Module):
-    def __init__(self):
+    def __init__(self, width=128):
         super().__init__()
-        self.net = nn.Sequential(nn.Linear(5, 128), nn.Tanh(),
-                                 nn.Linear(128, 128), nn.Tanh(),
-                                 nn.Linear(128, 4))
+        self.net = nn.Sequential(nn.Linear(5, width), nn.Tanh(),
+                                 nn.Linear(width, width), nn.Tanh(),
+                                 nn.Linear(width, 4))
 
     def forward(self, s, i):
         return self.net(torch.cat([s, i], -1))
@@ -93,6 +93,8 @@ def main():
     ap.add_argument('--mode', default='step',
                     choices=['step', 'deriv'])
     ap.add_argument('--epochs', type=int, default=8)
+    ap.add_argument('--width', type=int, default=128)
+    ap.add_argument('--wspike', action='store_true')
     ap.add_argument('--dev', default='cpu')
     args = ap.parse_args()
     dev = args.dev
@@ -111,8 +113,10 @@ def main():
     Inow = torch.tensor(Inow, dtype=torch.float32)
     Y = torch.tensor(Y, dtype=torch.float32)
     scale = Y.std(0, keepdim=True) + 1e-8      # per-var whitening
+    Wsamp = (1.0 + 9.0 * (X[:, 0] > 0.45).float()
+             if args.wspike else torch.ones(len(X)))
     torch.manual_seed(0)
-    model = F().to(dev)
+    model = F(args.width).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(
         opt, T_max=args.epochs, eta_min=1e-4)
@@ -124,8 +128,8 @@ def main():
             idx = perm[b0:b0 + 4096]
             x, i, y = (X[idx].to(dev), Inow[idx].to(dev),
                        Y[idx].to(dev))
-            loss = (((model(x, i) - y) / scale.to(dev))
-                    ** 2).mean()
+            loss = ((((model(x, i) - y) / scale.to(dev)) ** 2)
+                    .mean(-1) * Wsamp[idx].to(dev)).mean()
             opt.zero_grad()
             loss.backward()
             opt.step()
@@ -183,7 +187,9 @@ def main():
                spike_f1=round(f1, 3), fi_rmse_hz=round(fi_rmse, 1),
                rebound_spikes=reb)
     print('RESULT', json.dumps(res), flush=True)
-    json.dump(res, open(OUT / f'diag_{args.mode}.json', 'w'))
+    tag = f'{args.mode}_w{args.width}' + \
+        ('_ws' if args.wspike else '')
+    json.dump(res, open(OUT / f'diag_{tag}.json', 'w'))
 
 
 if __name__ == '__main__':
