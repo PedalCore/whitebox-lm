@@ -217,3 +217,58 @@ free-run), epochs 20 -> 60, ks {2,3,4,8}, seed 0, same gate.
 If v4 also fails the gate, rung 1 concludes as a negative result
 with the two findings above as its product, and R3+ proceed with
 designed/hybrid arms.
+
+## CORRECTIONS (2026-09-02, after collaborator review) — published,
+## not patched
+
+1. P1's framing was WRONG, not merely unscoreable. Canonical HH
+   has 4 explicit state variables, but 4 is not its minimal
+   observable/computational dimension: 2-D reductions (m -> m_inf(V)
+   slaving, h/n collapse — Krinsky-Kokoz, Rinzel, the FitzHugh-
+   Nagumo lineage) reproduce much of its behavior. The ladder
+   measures the MINIMAL REALIZATION for a model class x input
+   distribution x loss x observables — saturation at 2 would not
+   be instrument failure, saturation at 4 would not prove
+   dimension recovery. All rungs reread accordingly.
+2. RETRACTED: "a 2-state class ceiling, not optimizer luck" (also
+   posted publicly; correction posted to the project). Two 2-state
+   families at similar losses do not bound the class of all
+   2-state systems — objective, drive distribution, CMA budget,
+   parameterization, and local optima are all uncontrolled.
+   Replacement: two quite different canonical 2-state models
+   converged to remarkably similar performance under the same
+   criterion, SUGGESTING but not establishing a representational
+   rather than model-specific bottleneck.
+3. Downgraded: "you can't parameter-search your way out of
+   missing state" is a hypothesis these results suggest (and M12
+   demonstrated in ITS setting), not something demonstrated here.
+4. Sharpened reading of runs 1-3: they measured capacity x
+   optimization x rollout-stability x loss-geometry, entangled.
+   Scheduled sampling itself has known consistency problems.
+   Rather than v5/v6/v7 on the same entangled problem, redesign.
+
+## REDESIGN — three compressions, experiment ladder A-D
+## (declared before running)
+
+A. MECHANISTIC: remove partial observability. Supervision on the
+   full teacher state (V,m,h,n); model = encoder E(s_0) -> z_0,
+   SAME GRU cell class as runs 1-4 (input = current only), decoder
+   z -> (V,m,h,n). Implementation gate: k=8 must reach near-
+   perfect rollout (V-RMSE < 2 mV, F1 > 0.95) — if it cannot,
+   the problem is implementation, full stop. Then sweep
+   k = 1,2,3,4,8. Expectations: k=1 fails; k=2 tracks the known
+   2-D reduction (good V/spike behavior, imperfect gate
+   trajectories); k >= 4 near-perfect. If A's gate passes where
+   B's failed, partial observability + loss geometry — not the
+   cell class — was the binding constraint of runs 1-4.
+B. OBSERVABLE: current (+ voltage history) -> future voltage.
+   Runs v1-v4 belong here; delay embeddings are the classical
+   fix and a future arm.
+C. FUNCTIONAL: behaviors only (spike timing, f-I, rebound,
+   adaptation) — closest to "does extra state buy computation".
+D. COMPUTATIONAL: downstream task performance per unit state
+   (the R5 task rung, renamed).
+
+The physical -> observable -> behavioral -> computational
+progression is the project's actual question; rung-1's "knee at
+k=4" was a special case and is retired as a headline claim.
