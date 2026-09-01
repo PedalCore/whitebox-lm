@@ -39,8 +39,9 @@ class Surrogate(nn.Module):
     """k persistent states; readouts are memoryless MLPs (add no
     state, so the ladder still measures k)."""
 
-    def __init__(self, k):
+    def __init__(self, k, fb=True):
         super().__init__()
+        self.fb = fb                   # v4: fb=False = v2 recipe
         self.cell = nn.GRUCell(2, k)   # [current, v_feedback]
         self.out = nn.Sequential(nn.Linear(k, 32), nn.Tanh(),
                                  nn.Linear(32, 1))
@@ -62,7 +63,9 @@ class Surrogate(nn.Module):
             v_prev = i_seq.new_zeros(B, 1)          # rest = 0 norm
         hs, vs = [], []
         for t in range(T):
-            if v_teach is not None and eps < 1.0:
+            if not self.fb:
+                v_fb = v_prev * 0.0
+            elif v_teach is not None and eps < 1.0:
                 use_own = (torch.rand(B, 1, device=i_seq.device)
                            < eps).float()
                 prev_t = (v_teach[:, t - 1:t] if t > 0 else v_prev)
@@ -126,9 +129,9 @@ def eval_signatures(model, d, dev):
     return fi_rmse, reb
 
 
-def train_one(k, d, dev, epochs, seed=0, use_wandb=False):
+def train_one(k, d, dev, epochs, seed=0, use_wandb=False, fb=True):
     torch.manual_seed(seed)
-    model = Surrogate(k).to(dev)
+    model = Surrogate(k, fb=fb).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=3e-3)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(
         opt, T_max=epochs, eta_min=3e-4)
@@ -195,13 +198,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--ks', default='1,2,3,4,8')
     ap.add_argument('--epochs', type=int, default=20)
+    ap.add_argument('--no-fb', action='store_true')
     args = ap.parse_args()
     dev = ('mps' if torch.backends.mps.is_available() else 'cpu')
     d = dict(np.load(OUT / 'hh_data.npz'))
     use_wandb = False
     try:
         import wandb
-        wandb.init(project='m13-state', name='rung1-ladder-v3',
+        wandb.init(project='m13-state',
+                   name='rung1-ladder-v4' if args.no_fb else 'rung1-ladder-v3',
                    config=vars(args))
         use_wandb = True
     except Exception as e:
@@ -210,7 +215,7 @@ def main():
         d['rebound_v'][int(200.0 / (DT * REC_EVERY)):]))
     print(f'teacher rebound spikes: {teacher_reb}', flush=True)
     results = [train_one(int(k), d, dev, args.epochs,
-                         use_wandb=use_wandb)
+                         use_wandb=use_wandb, fb=not args.no_fb)
                for k in args.ks.split(',')]
     json.dump(results, open(OUT / 'ladder_results.json', 'w'),
               indent=1)
