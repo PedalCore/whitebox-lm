@@ -322,3 +322,42 @@ this transition class. Secondary mode: learn the analytic vector
 field (RHS at recorded states) and integrate with Euler substeps
 — separates vector-field learning from discretized transitions
 (the CfC/continuous-time question, testable cheaply).
+
+## Experiment A final + A0 fork results (2026-09-02)
+
+A (full-state supervision, 20 ep, seed 0): k=1 F1 0.000 / k=2
+0.000 / k=3 0.000 / k=4 0.468 / k=8 0.712. Monotone, with two
+QUALITATIVE transitions: spiking appears between k=3 and k=4;
+autonomous constant-drive firing appears between k=4 and k=8.
+Restrained reading (per review): a provisional state-dependent
+performance hierarchy under a fixed learned dynamics class — NOT
+a minimal-realization measurement (gate unpassed; single seed;
+k=8's late learning transition confounds budget with capacity).
+
+A0 fork (no latents, no recurrence, MLP 128x128, 8 ep):
+- step mode (0.1 ms flow map): one-step rel. RMSE V 0.37 / m 0.20
+  / h 0.14 / n 0.06 — NOT excellent; rollout explodes (56.7 mV,
+  F1 0.005). The flow map's curvature concentrates in the thin
+  spike-upstroke region that iid sampling barely weights.
+- deriv mode (analytic HH RHS, Euler substeps): one-step rel.
+  RMSE 0.10 / 0.05 / 0.06 / 0.02 — 4x better (smoother target);
+  rollout STILL fails (84 mV, F1 0.01) but differently: fires
+  spuriously (4 false rebounds) and saturates the clamps rather
+  than going silent. 5-10% vector-field error destroys the limit
+  cycle.
+
+Fork verdict so far: "one-step decent, rollout bad" — between the
+review's branches. Before attributing to dynamical stability, the
+one-step fit must be pushed to excellent (a closed-form smooth
+RHS should fit to <1%).
+
+A0b declared (before running): deriv mode, 40 epochs, width 256,
+spike-region sample weighting. Question: does rollout fidelity
+improve CONTINUOUSLY with vector-field precision, or is there a
+precision cliff below which the limit cycle cannot be maintained?
+Either answer is informative: continuous -> budget problem;
+cliff -> quantifies the precision a learned dynamical
+approximation of a neuron actually needs (directly relevant to
+the substrate question: hand-designed dynamics carry their
+qualitative regime for free; learned ones must buy it with
+precision).
