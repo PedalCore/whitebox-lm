@@ -1,12 +1,16 @@
 """M13 rung 1 — learned k-state surrogates of the HH teacher.
 
-k-state GRU cell + linear voltage readout, k in {1,2,4,8}. TBPTT
-over 1000-step (100 ms) chunks. Voltage MSE with 4x weight on
-spike-region samples (teacher V > -20 mV). Reports voltage RMSE,
-spike-timing F1 (+-2 ms), and the two OOD signatures (f-I curve
-error, anodal-break rebound) per k.
+k-state GRU cell, k in {1,2,4,8}; memoryless MLP readouts for
+voltage and an auxiliary spike head (training aid — primary F1 is
+still scored by 0 mV voltage crossings, same detector as the
+teacher). TBPTT over 1000-step (100 ms) chunks. Weighted voltage
+MSE (10x on V > -20 mV) + 0.5*BCE on +-0.3 ms spike indicators.
+Reports voltage RMSE, spike-timing F1 (+-2 ms), and the two OOD
+signatures (f-I curve error, anodal-break rebound) per k.
+Instrument gate: interpret the ladder only if the largest k fits
+well (F1 > 0.9, RMSE < 5 mV).
 
-python3 -m whitebox.hh_surrogate [--ks 1,2,4,8] [--epochs 12]
+python3 -m whitebox.hh_surrogate [--ks 1,2,4,8] [--epochs 30]
 """
 
 import argparse
@@ -29,22 +33,29 @@ IS = 10.0                     # I_norm = I / 10
 
 
 class Surrogate(nn.Module):
+    """k persistent states; readouts are memoryless MLPs (add no
+    state, so the ladder still measures k)."""
+
     def __init__(self, k):
         super().__init__()
         self.cell = nn.GRUCell(1, k)
-        self.out = nn.Linear(k, 1)
+        self.out = nn.Sequential(nn.Linear(k, 32), nn.Tanh(),
+                                 nn.Linear(32, 1))
+        self.spk = nn.Sequential(nn.Linear(k, 32), nn.Tanh(),
+                                 nn.Linear(32, 1))
         self.k = k
 
     def forward(self, i_seq, h=None):
-        """i_seq (B,T) normalized current -> v (B,T) normalized."""
+        """i_seq (B,T) normalized current -> (v, spike_logit, h)."""
         B, T = i_seq.shape
         if h is None:
             h = i_seq.new_zeros(B, self.k)
-        vs = []
+        hs = []
         for t in range(T):
             h = self.cell(i_seq[:, t:t + 1], h)
-            vs.append(self.out(h))
-        return torch.cat(vs, 1), h
+            hs.append(h)
+        H = torch.stack(hs, 1)
+        return self.out(H).squeeze(-1), self.spk(H).squeeze(-1), h
 
 
 def run_full(model, I_mv, dev, bs=32):
@@ -55,7 +66,7 @@ def run_full(model, I_mv, dev, bs=32):
         for b0 in range(0, len(I_mv), bs):
             x = torch.tensor(I_mv[b0:b0 + bs] / IS,
                              dtype=torch.float32, device=dev)
-            v, _ = model(x)
+            v, _, _ = model(x)
             outs.append(v.cpu().numpy() * VS - VOFF)
     return np.concatenate(outs, 0)
 
@@ -98,10 +109,19 @@ def train_one(k, d, dev, epochs, seed=0, use_wandb=False):
     torch.manual_seed(seed)
     model = Surrogate(k).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=3e-3)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(
+        opt, T_max=epochs, eta_min=3e-4)
     Itr = torch.tensor(d['train_I'] / IS, dtype=torch.float32)
     Vtr = torch.tensor((d['train_V'] + VOFF) / VS,
                        dtype=torch.float32)
-    W = torch.where(Vtr > 0.45, 4.0, 1.0)      # V > -20 mV
+    W = torch.where(Vtr > 0.45, 10.0, 1.0)     # V > -20 mV
+    S = torch.zeros_like(Vtr)                  # spike indicator
+    for b in range(len(d['train_V'])):
+        for t in spikes_from_v(d['train_V'][b]):
+            i = int(t / 0.1)
+            S[b, max(i - 3, 0):i + 4] = 1.0
+    bce = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(20.0,
+                                                       device=dev))
     nprm = sum(p.numel() for p in model.parameters())
     B, T = Itr.shape
     for ep in range(epochs):
@@ -114,21 +134,25 @@ def train_one(k, d, dev, epochs, seed=0, use_wandb=False):
                 x = Itr[idx, c0:c0 + CHUNK].to(dev)
                 y = Vtr[idx, c0:c0 + CHUNK].to(dev)
                 w = W[idx, c0:c0 + CHUNK].to(dev)
-                v, h = model(x, None if h is None else h.detach())
-                loss = ((v - y) ** 2 * w).mean()
+                sy = S[idx, c0:c0 + CHUNK].to(dev)
+                v, sl, h = model(x, None if h is None else h.detach())
+                loss = ((v - y) ** 2 * w).mean() + 0.5 * bce(sl, sy)
                 opt.zero_grad()
                 loss.backward()
                 opt.step()
                 tot += float(loss) * x.numel()
                 cnt += x.numel()
+        sched.step()
         va = run_full(model, d['val_I'], dev)
         rmse = float(np.sqrt(np.mean((va - d['val_V']) ** 2)))
+        vf1 = spike_f1(d['val_V'], va)
         print(f'k={k} ep{ep + 1}: train {tot / cnt:.5f} '
-              f'val-RMSE {rmse:.2f} mV', flush=True)
+              f'val-RMSE {rmse:.2f} mV F1 {vf1:.2f}', flush=True)
         if use_wandb:
             import wandb
             wandb.log({f'k{k}/train_loss': tot / cnt,
-                       f'k{k}/val_rmse': rmse, 'epoch': ep + 1})
+                       f'k{k}/val_rmse': rmse,
+                       f'k{k}/val_f1': vf1, 'epoch': ep + 1})
     te = run_full(model, d['test_I'], dev)
     rmse = float(np.sqrt(np.mean((te - d['test_V']) ** 2)))
     f1 = spike_f1(d['test_V'], te)
@@ -144,14 +168,14 @@ def train_one(k, d, dev, epochs, seed=0, use_wandb=False):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--ks', default='1,2,4,8')
-    ap.add_argument('--epochs', type=int, default=12)
+    ap.add_argument('--epochs', type=int, default=30)
     args = ap.parse_args()
     dev = ('mps' if torch.backends.mps.is_available() else 'cpu')
     d = dict(np.load(OUT / 'hh_data.npz'))
     use_wandb = False
     try:
         import wandb
-        wandb.init(project='m13-state', name='rung1-ladder',
+        wandb.init(project='m13-state', name='rung1-ladder-v2',
                    config=vars(args))
         use_wandb = True
     except Exception as e:
